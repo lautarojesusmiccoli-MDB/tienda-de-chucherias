@@ -211,7 +211,6 @@ def ventas():
     cursor.execute("SELECT id, producto, cantidad, total, fecha FROM ventas")
     historial_ventas = cursor.fetchall()
 
-    # Traer todos los productos para asegurar que aparezcan (incluso si el filtro daba problemas)
     cursor.execute("SELECT nombre FROM productos")
     productos_disponibles = [row[0] for row in cursor.fetchall()]
     conn.close()
