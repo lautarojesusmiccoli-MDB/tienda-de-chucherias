@@ -4,7 +4,6 @@ from flask import Flask, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 
-# Configuración de la Base de Datos
 def inicializar_bd():
     conn = sqlite3.connect("chucherias.db")
     cursor = conn.cursor()
@@ -22,8 +21,7 @@ def inicializar_bd():
             categoria TEXT NOT NULL,
             precio_compra REAL NOT NULL,
             precio_venta REAL NOT NULL,
-            stock INTEGER NOT NULL,
-            FOREIGN KEY (categoria) REFERENCES categorias (nombre)
+            stock INTEGER NOT NULL
         )
     """)
     cursor.execute("""
@@ -40,13 +38,11 @@ def inicializar_bd():
 
 inicializar_bd()
 
-# --- RUTAS DE NAVEGACIÓN ---
-
 @app.route("/")
 def index():
     return render_template("index.html")
 
-# 1. CATEGORÍAS
+# --- CATEGORÍAS ---
 @app.route("/categorias", methods=["GET", "POST"])
 def categorias():
     conn = sqlite3.connect("chucherias.db")
@@ -60,7 +56,7 @@ def categorias():
                 cursor.execute("INSERT INTO categorias (nombre, porcentaje) VALUES (?, ?)", (nombre, float(porcentaje)))
                 conn.commit()
             except sqlite3.IntegrityError:
-                pass # Evita duplicados
+                pass
         return redirect(url_for("categorias"))
 
     cursor.execute("SELECT id, nombre, porcentaje FROM categorias")
@@ -68,7 +64,28 @@ def categorias():
     conn.close()
     return render_template("categorias.html", categorias=cats)
 
-@app.route("/categorias/eliminar/<int:id>")
+@app.route("/editar_categoria", methods=["GET", "POST"])
+def editar_categoria():
+    conn = sqlite3.connect("chucherias.db")
+    cursor = conn.cursor()
+    
+    if request.method == "POST":
+        cat_id = request.form.get("id")
+        nombre = request.form.get("nombre").strip()
+        porcentaje = request.form.get("porcentaje").strip()
+        if nombre and porcentaje:
+            cursor.execute("UPDATE categorias SET nombre = ?, porcentaje = ? WHERE id = ?", (nombre, float(porcentaje), cat_id))
+            conn.commit()
+            conn.close()
+            return redirect(url_for("categorias"))
+
+    cat_id = request.args.get("id")
+    cursor.execute("SELECT id, nombre, porcentaje FROM categorias WHERE id = ?", (cat_id,))
+    cat = cursor.fetchone()
+    conn.close()
+    return render_template("editar_categoria.html", categoria=cat)
+
+@app.route("/eliminar_categoria/<int:id>")
 def eliminar_categoria(id):
     conn = sqlite3.connect("chucherias.db")
     cursor = conn.cursor()
@@ -77,7 +94,7 @@ def eliminar_categoria(id):
     conn.close()
     return redirect(url_for("categorias"))
 
-# 2. INVENTARIO
+# --- INVENTARIO ---
 @app.route("/inventario", methods=["GET", "POST"])
 def inventario():
     conn = sqlite3.connect("chucherias.db")
@@ -92,7 +109,6 @@ def inventario():
         if nombre and categoria and p_compra and stock:
             try:
                 p_c = float(p_compra)
-                # Buscar porcentaje de la categoría para calcular precio de venta automáticamente
                 cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
                 res = cursor.fetchone()
                 if res:
@@ -117,7 +133,46 @@ def inventario():
     
     return render_template("inventario.html", productos=prods, categorias=cats)
 
-@app.route("/inventario/eliminar/<int:id>")
+@app.route("/editar_producto", methods=["GET", "POST"])
+def editar_producto():
+    conn = sqlite3.connect("chucherias.db")
+    cursor = conn.cursor()
+    
+    if request.method == "POST":
+        prod_id = request.form.get("id")
+        nombre = request.form.get("nombre").strip()
+        categoria = request.form.get("categoria").strip()
+        p_compra = request.form.get("precio_compra").strip()
+        stock = request.form.get("stock").strip()
+
+        if nombre and categoria and p_compra and stock:
+            try:
+                p_c = float(p_compra)
+                cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
+                res = cursor.fetchone()
+                if res:
+                    porcentaje = res[0]
+                    p_v = p_c + (p_c * (porcentaje / 100.0))
+                    
+                    cursor.execute("""
+                        UPDATE productos SET nombre = ?, categoria = ?, precio_compra = ?, precio_venta = ?, stock = ?
+                        WHERE id = ?
+                    """, (nombre, categoria, p_c, p_v, int(stock), prod_id))
+                    conn.commit()
+            except ValueError:
+                pass
+            conn.close()
+            return redirect(url_for("inventario"))
+
+    prod_id = request.args.get("id")
+    cursor.execute("SELECT id, nombre, categoria, precio_compra, stock FROM productos WHERE id = ?", (prod_id,))
+    prod = cursor.fetchone()
+    cursor.execute("SELECT nombre, porcentaje FROM categorias")
+    cats = cursor.fetchall()
+    conn.close()
+    return render_template("editar_inventario.html", producto=prod, categorias=cats)
+
+@app.route("/eliminar_producto/<int:id>")
 def eliminar_producto(id):
     conn = sqlite3.connect("chucherias.db")
     cursor = conn.cursor()
@@ -126,7 +181,7 @@ def eliminar_producto(id):
     conn.close()
     return redirect(url_for("inventario"))
 
-# 3. VENTAS
+# --- VENTAS ---
 @app.route("/ventas", methods=["GET", "POST"])
 def ventas():
     conn = sqlite3.connect("chucherias.db")
@@ -156,18 +211,17 @@ def ventas():
     cursor.execute("SELECT id, producto, cantidad, total, fecha FROM ventas")
     historial_ventas = cursor.fetchall()
 
-    cursor.execute("SELECT nombre FROM productos WHERE stock > 0")
+    # Traer todos los productos para asegurar que aparezcan (incluso si el filtro daba problemas)
+    cursor.execute("SELECT nombre FROM productos")
     productos_disponibles = [row[0] for row in cursor.fetchall()]
     conn.close()
 
-    return render_template("ventas.html", ventas=historial_ventas, productos=productos_disponibles)
+    return render_template("ventas.html", ventas=historial_ventas, productos_disponibles=productos_disponibles)
 
-@app.route("/ventas/eliminar/<int:id>")
+@app.route("/eliminar_venta/<int:id>")
 def eliminar_venta(id):
     conn = sqlite3.connect("chucherias.db")
     cursor = conn.cursor()
-    
-    # Obtener datos de la venta para devolver el stock
     cursor.execute("SELECT producto, cantidad FROM ventas WHERE id = ?", (id,))
     v = cursor.fetchone()
     if v:
@@ -175,7 +229,6 @@ def eliminar_venta(id):
         cursor.execute("UPDATE productos SET stock = stock + ? WHERE nombre = ?", (cant, prod_nombre))
         cursor.execute("DELETE FROM ventas WHERE id = ?", (id,))
         conn.commit()
-        
     conn.close()
     return redirect(url_for("ventas"))
 

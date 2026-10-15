@@ -68,8 +68,9 @@
                         <td class="fw-bold text-success">${{ "%.2f"|format(p[4]) }}</td>
                         <td>{{ p[5] }}</td>
                         <td>
-                            <a href="/inventario/editar/{{ p[0] }}" class="btn btn-warning btn-sm fw-bold">Editar</a>
-                            <a href="/inventario/eliminar/{{ p[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este producto?');">Eliminar</a>
+                            <a 
+href="/editar_producto?id={{ p[0] }}" class="btn btn-warning btn-sm fw-bold">Editar</>
+                            <a href="/eliminar_producto/{{ p[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro?');">Eliminar</a>
                         </td>
                     </tr>
                     {% endfor %}

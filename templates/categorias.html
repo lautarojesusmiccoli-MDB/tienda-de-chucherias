@@ -52,8 +52,9 @@
                         <td class="fw-bold">{{ cat[1] }}</td>
                         <td>{{ cat[2] }}%</td>
                         <td>
-                            <a href="/categorias/editar/{{ cat[0] }}" class="btn btn-warning btn-sm fw-bold">Editar</a>
-                            <a href="/categorias/eliminar/{{ cat[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar esta categoría?');">Eliminar</a>
+                            <a 
+href="/editar_categoria?id={{ cat[0] }}" class="btn btn-warning btn-sm fw-bold">Editar</a>
+                            <a href="/eliminar_categoria/{{ cat[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro?');">Eliminar</a>
                         </td>
                     </tr>
                     {% endfor %}
