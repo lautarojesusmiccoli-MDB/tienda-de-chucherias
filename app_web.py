@@ -2,7 +2,6 @@ import os
 import sqlite3
 from flask import Flask, redirect, render_template, request, url_for
 
-# Intentamos importar psycopg2 para PostgreSQL en la nube
 try:
     import psycopg2
     HAS_POSTGRES = True
@@ -10,7 +9,6 @@ except ImportError:
     HAS_POSTGRES = False
 
 app = Flask(__name__)
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def obtener_conexion():
@@ -119,14 +117,41 @@ def editar_categoria():
     
     if request.method == "POST":
         cat_id = request.form.get("id")
-        nombre = request.form.get("nombre").strip()
-        porcentaje = request.form.get("porcentaje").strip()
-        if nombre and porcentaje and cat_id:
+        nuevo_nombre = request.form.get("nombre").strip()
+        nuevo_porcentaje = float(request.form.get("porcentaje").strip())
+        
+        if cat_id:
+            # 1. Obtener el nombre anterior de la categoría para actualizar los productos vinculados
             if DATABASE_URL and HAS_POSTGRES:
-                cursor.execute("UPDATE categorias SET nombre = %s, porcentaje = %s WHERE id = %s", (nombre, float(porcentaje), cat_id))
+                cursor.execute("SELECT nombre FROM categorias WHERE id = %s", (cat_id,))
             else:
-                cursor.execute("UPDATE categorias SET nombre = ?, porcentaje = ? WHERE id = ?", (nombre, float(porcentaje), cat_id))
-            conn.commit()
+                cursor.execute("SELECT nombre FROM categorias WHERE id = ?", (cat_id,))
+            cat_ant = cursor.fetchone()
+            
+            if cat_ant:
+                nombre_antiguo = cat_ant[0]
+                
+                # 2. Actualizar la categoría
+                if DATABASE_URL and HAS_POSTGRES:
+                    cursor.execute("UPDATE categorias SET nombre = %s, porcentaje = %s WHERE id = %s", (nuevo_nombre, nuevo_porcentaje, cat_id))
+                    # Actualizar también la referencia de categoría en los productos si cambió el nombre
+                    cursor.execute("UPDATE productos SET categoria = %s WHERE categoria = %s", (nuevo_nombre, nombre_antiguo))
+                    # Recalcular automáticamente los precios de venta de todos los productos de esta categoría
+                    cursor.execute("SELECT id, precio_compra FROM productos WHERE categoria = %s", (nuevo_nombre,))
+                else:
+                    cursor.execute("UPDATE categorias SET nombre = ?, porcentaje = ? WHERE id = ?", (nuevo_nombre, nuevo_porcentaje, cat_id))
+                    cursor.execute("UPDATE productos SET categoria = ? WHERE categoria = ?", (nuevo_nombre, nombre_antiguo))
+                    cursor.execute("SELECT id, precio_compra FROM productos WHERE categoria = ?", (nuevo_nombre,))
+                
+                productos_afectados = cursor.fetchall()
+                for prod_id, p_compra in productos_afectados:
+                    nuevo_p_venta = p_compra + (p_compra * (nuevo_porcentaje / 100.0))
+                    if DATABASE_URL and HAS_POSTGRES:
+                        cursor.execute("UPDATE productos SET precio_venta = %s WHERE id = %s", (nuevo_p_venta, prod_id))
+                    else:
+                        cursor.execute("UPDATE productos SET precio_venta = ? WHERE id = ?", (nuevo_p_venta, prod_id))
+                
+                conn.commit()
             conn.close()
             return redirect(url_for("categorias"))
 
@@ -171,7 +196,6 @@ def inventario():
                 else:
                     cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
                 res = cursor.fetchone()
-                
                 if res:
                     porcentaje = res[0]
                     p_v = p_c + (p_c * (porcentaje / 100.0))
@@ -192,14 +216,23 @@ def inventario():
         conn.close()
         return redirect(url_for("inventario"))
 
-    cursor.execute("SELECT id, nombre, categoria, precio_compra, precio_venta, stock FROM productos")
+    # Soporte para el Buscador de Inventario
+    busqueda = request.args.get("q", "").strip()
+    if busqueda:
+        if DATABASE_URL and HAS_POSTGRES:
+            cursor.execute("SELECT id, nombre, categoria, precio_compra, precio_venta, stock FROM productos WHERE nombre ILIKE %s", (f"%{busqueda}%",))
+        else:
+            cursor.execute("SELECT id, nombre, categoria, precio_compra, precio_venta, stock FROM productos WHERE nombre LIKE ?", (f"%{busqueda}%",))
+    else:
+        cursor.execute("SELECT id, nombre, categoria, precio_compra, precio_venta, stock FROM productos")
+    
     prods = cursor.fetchall()
     
     cursor.execute("SELECT nombre, porcentaje FROM categorias")
     cats = cursor.fetchall()
     conn.close()
     
-    return render_template("inventario.html", productos=prods, categorias=cats)
+    return render_template("inventario.html", productos=prods, categorias=cats, busqueda=busqueda)
 
 @app.route("/editar_producto", methods=["GET", "POST"])
 def editar_producto():
