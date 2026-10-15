@@ -11,11 +11,9 @@ except ImportError:
 
 app = Flask(__name__)
 
-# URL de base de datos en la nube (Render provee DATABASE_URL automáticamente)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def obtener_conexion():
-    """Devuelve una conexión a PostgreSQL si está en la nube, o a SQLite local si está en la PC."""
     if DATABASE_URL and HAS_POSTGRES:
         return psycopg2.connect(DATABASE_URL)
     else:
@@ -25,7 +23,6 @@ def inicializar_bd():
     conn = obtener_conexion()
     cursor = conn.cursor()
     
-    # Sintaxis adaptada para asegurar compatibilidad entre SQLite y PostgreSQL
     if DATABASE_URL and HAS_POSTGRES:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS categorias (
@@ -100,7 +97,10 @@ def categorias():
         porcentaje = request.form.get("porcentaje").strip()
         if nombre and porcentaje:
             try:
-                cursor.execute("INSERT INTO categorias (nombre, porcentaje) VALUES (%s, %s)" if DATABASE_URL and HAS_POSTGRES else "INSERT INTO categorias (nombre, porcentaje) VALUES (?, ?)", (nombre, float(porcentaje)))
+                if DATABASE_URL and HAS_POSTGRES:
+                    cursor.execute("INSERT INTO categorias (nombre, porcentaje) VALUES (%s, %s)", (nombre, float(porcentaje)))
+                else:
+                    cursor.execute("INSERT INTO categorias (nombre, porcentaje) VALUES (?, ?)", (nombre, float(porcentaje)))
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -121,14 +121,20 @@ def editar_categoria():
         cat_id = request.form.get("id")
         nombre = request.form.get("nombre").strip()
         porcentaje = request.form.get("porcentaje").strip()
-        if nombre and porcentaje:
-            cursor.execute("UPDATE categorias SET nombre = %s, porcentaje = %s WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "UPDATE categorias/SET nombre = ?, porcentaje = ? WHERE id = ?".replace("/", " "), (nombre, float(porcentaje), cat_id))
+        if nombre and porcentaje and cat_id:
+            if DATABASE_URL and HAS_POSTGRES:
+                cursor.execute("UPDATE categorias SET nombre = %s, porcentaje = %s WHERE id = %s", (nombre, float(porcentaje), cat_id))
+            else:
+                cursor.execute("UPDATE categorias SET nombre = ?, porcentaje = ? WHERE id = ?", (nombre, float(porcentaje), cat_id))
             conn.commit()
             conn.close()
             return redirect(url_for("categorias"))
 
     cat_id = request.args.get("id")
-    cursor.execute("SELECT id, nombre, porcentaje FROM categorias WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT id, nombre, porcentaje FROM categorias WHERE id = ?", (cat_id,))
+    if DATABASE_URL and HAS_POSTGRES:
+        cursor.execute("SELECT id, nombre, porcentaje FROM categorias WHERE id = %s", (cat_id,))
+    else:
+        cursor.execute("SELECT id, nombre, porcentaje FROM categorias WHERE id = ?", (cat_id,))
     cat = cursor.fetchone()
     conn.close()
     return render_template("editar_categoria.html", categoria=cat)
@@ -137,7 +143,10 @@ def editar_categoria():
 def eliminar_categoria(id):
     conn = obtener_conexion()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM categorias WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "DELETE FROM categorias WHERE id = ?", (id,))
+    if DATABASE_URL and HAS_POSTGRES:
+        cursor.execute("DELETE FROM categorias WHERE id = %s", (id,))
+    else:
+        cursor.execute("DELETE FROM categorias WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     return redirect(url_for("categorias"))
@@ -157,20 +166,26 @@ def inventario():
         if nombre and categoria and p_compra and stock:
             try:
                 p_c = float(p_compra)
-                cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
+                if DATABASE_URL and HAS_POSTGRES:
+                    cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = %s", (categoria,))
+                else:
+                    cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
                 res = cursor.fetchone()
+                
                 if res:
                     porcentaje = res[0]
                     p_v = p_c + (p_c * (porcentaje / 100.0))
                     
-                    sql = """
-                        INSERT INTO productos (nombre, categoria, precio_compra, precio_venta, stock)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """ if DATABASE_URL and HAS_POSTGRES else """
-                        INSERT INTO productos (nombre, categoria, precio_compra, precio_venta, stock)
-                        VALUES (?, ?, ?, ?, ?)
-                    """
-                    cursor.execute(sql, (nombre, categoria, p_c, p_v, int(stock)))
+                    if DATABASE_URL and HAS_POSTGRES:
+                        cursor.execute("""
+                            INSERT INTO productos (nombre, categoria, precio_compra, precio_venta, stock)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (nombre, categoria, p_c, p_v, int(stock)))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO productos (nombre, categoria, precio_compra, precio_venta, stock)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (nombre, categoria, p_c, p_v, int(stock)))
                     conn.commit()
             except Exception:
                 pass
@@ -198,32 +213,42 @@ def editar_producto():
         p_compra = request.form.get("precio_compra").strip()
         stock = request.form.get("stock").strip()
 
-        if nombre and categoria and p_compra and stock:
+        if nombre and categoria and p_compra and stock and prod_id:
             try:
                 p_c = float(p_compra)
-                cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
+                if DATABASE_URL and HAS_POSTGRES:
+                    cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = %s", (categoria,))
+                else:
+                    cursor.execute("SELECT porcentaje FROM categorias WHERE nombre = ?", (categoria,))
                 res = cursor.fetchone()
+                
                 if res:
                     porcentaje = res[0]
                     p_v = p_c + (p_c * (porcentaje / 100.0))
                     
-                    sql = """
-                        UPDATE productos SET nombre = %s, categoria = %s, precio_compra = %s, precio_venta = %s, stock = %s
-                        WHERE id = %s
-                    """ if DATABASE_URL and HAS_POSTGRES else """
-                        UPDATE productos SET nombre = ?, categoria = ?, precio_compra = ?, precio_venta = ?, stock = ?
-                        WHERE id = ?
-                    """
-                    cursor.execute(sql, (nombre, categoria, p_c, p_v, int(stock), prod_id))
+                    if DATABASE_URL and HAS_POSTGRES:
+                        cursor.execute("""
+                            UPDATE productos SET nombre = %s, categoria = %s, precio_compra = %s, precio_venta = %s, stock = %s
+                            WHERE id = %s
+                        """, (nombre, categoria, p_c, p_v, int(stock), prod_id))
+                    else:
+                        cursor.execute("""
+                            UPDATE productos SET nombre = ?, categoria = ?, precio_compra = ?, precio_venta = ?, stock = ?
+                            WHERE id = ?
+                        """, (nombre, categoria, p_c, p_v, int(stock), prod_id))
                     conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                print("Error actualizando producto:", e)
             conn.close()
             return redirect(url_for("inventario"))
 
     prod_id = request.args.get("id")
-    cursor.execute("SELECT id, nombre, categoria, precio_compra, stock FROM productos WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT id, nombre, categoria, precio_compra, stock FROM productos WHERE id = ?", (prod_id,))
+    if DATABASE_URL and HAS_POSTGRES:
+        cursor.execute("SELECT id, nombre, categoria, precio_compra, stock FROM productos WHERE id = %s", (prod_id,))
+    else:
+        cursor.execute("SELECT id, nombre, categoria, precio_compra, stock FROM productos WHERE id = ?", (prod_id,))
     prod = cursor.fetchone()
+    
     cursor.execute("SELECT nombre, porcentaje FROM categorias")
     cats = cursor.fetchall()
     conn.close()
@@ -233,7 +258,10 @@ def editar_producto():
 def eliminar_producto(id):
     conn = obtener_conexion()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM productos WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "DELETE FROM productos WHERE id = ?", (id,))
+    if DATABASE_URL and HAS_POSTGRES:
+        cursor.execute("DELETE FROM productos WHERE id = %s", (id,))
+    else:
+        cursor.execute("DELETE FROM productos WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     return redirect(url_for("inventario"))
@@ -251,18 +279,23 @@ def ventas():
         if producto_nombre and cantidad:
             try:
                 cant = int(cantidad)
-                cursor.execute("SELECT id, precio_venta, stock FROM productos WHERE nombre = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT id, precio_venta, stock FROM productos WHERE nombre = ?", (producto_nombre,))
+                if DATABASE_URL and HAS_POSTGRES:
+                    cursor.execute("SELECT id, precio_venta, stock FROM productos WHERE nombre = %s", (producto_nombre,))
+                else:
+                    cursor.execute("SELECT id, precio_venta, stock FROM productos WHERE nombre = ?", (producto_nombre,))
                 prod = cursor.fetchone()
+                
                 if prod and cant > 0 and cant <= prod[2]:
                     prod_id, p_venta, stock_actual = prod[0], prod[1], prod[2]
                     total = p_venta * cant
                     nuevo_stock = stock_actual - cant
 
-                    sql_stock = "UPDATE productos SET stock = %s WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "UPDATE productos SET stock = ? WHERE id = ?"
-                    sql_venta = "INSERT INTO ventas (producto, cantidad, total) VALUES (%s, %s, %s)" if DATABASE_URL and HAS_POSTGRES else "INSERT INTO ventas (producto, cantidad, total) VALUES (?, ?, ?)"
-                    
-                    cursor.execute(sql_stock, (nuevo_stock, prod_id))
-                    cursor.execute(sql_venta, (producto_nombre, cant, total))
+                    if DATABASE_URL and HAS_POSTGRES:
+                        cursor.execute("UPDATE productos SET stock = %s WHERE id = %s", (nuevo_stock, prod_id))
+                        cursor.execute("INSERT INTO ventas (producto, cantidad, total) VALUES (%s, %s, %s)", (producto_nombre, cant, total))
+                    else:
+                        cursor.execute("UPDATE productos SET stock = ? WHERE id = ?", (nuevo_stock, prod_id))
+                        cursor.execute("INSERT INTO ventas (producto, cantidad, total) VALUES (?, ?, ?)", (producto_nombre, cant, total))
                     conn.commit()
             except Exception:
                 pass
@@ -282,15 +315,20 @@ def ventas():
 def eliminar_venta(id):
     conn = obtener_conexion()
     cursor = conn.cursor()
-    cursor.execute("SELECT producto, cantidad FROM ventas WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "SELECT producto, cantidad FROM ventas WHERE id = ?", (id,))
+    if DATABASE_URL and HAS_POSTGRES:
+        cursor.execute("SELECT producto, cantidad FROM ventas WHERE id = %s", (id,))
+    else:
+        cursor.execute("SELECT producto, cantidad FROM ventas WHERE id = ?", (id,))
     v = cursor.fetchone()
+    
     if v:
         prod_nombre, cant = v[0], v[1]
-        sql_stock = "UPDATE productos SET stock = stock + %s WHERE nombre = %s" if DATABASE_URL and HAS_POSTGRES else "UPDATE productos SET stock = stock + ? WHERE nombre = ?"
-        sql_del = "DELETE FROM ventas WHERE id = %s" if DATABASE_URL and HAS_POSTGRES else "DELETE FROM ventas WHERE id = ?"
-        
-        cursor.execute(sql_stock, (cant, prod_nombre))
-        cursor.execute(sql_del, (id,))
+        if DATABASE_URL and HAS_POSTGRES:
+            cursor.execute("UPDATE productos SET stock = stock + %s WHERE nombre = %s", (cant, prod_nombre))
+            cursor.execute("DELETE FROM ventas WHERE id = %s", (id,))
+        else:
+            cursor.execute("UPDATE productos SET stock = stock + ? WHERE nombre = ?", (cant, prod_nombre))
+            cursor.execute("DELETE FROM ventas WHERE id = ?", (id,))
         conn.commit()
     conn.close()
     return redirect(url_for("ventas"))
